@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase'
-import { authenticateAPIRequest, APIPermission, createAPIResponse, createAPIError, rateLimiter } from '@/lib/api-auth'
+import { authenticateAPIRequest, APIPermission, createAPIResponse, createAPIError } from '@/lib/api-auth'
+import { RateLimitHelper } from '@/lib/rate-limit-helpers'
 
 export async function GET(request: NextRequest) {
   try {
@@ -8,8 +9,9 @@ export async function GET(request: NextRequest) {
     const user = await authenticateAPIRequest(request)
 
     // Check rate limiting
-    if (!rateLimiter.checkLimit(user.api_key_id)) {
-      return createAPIError('Rate limit exceeded', 429, 'RATE_LIMIT_EXCEEDED')
+    const rateLimitInfo = await RateLimitHelper.checkAPIWithBurstLimit(request)
+    if (!rateLimitInfo.allowed) {
+      return RateLimitHelper.createRateLimitError(rateLimitInfo)
     }
 
     // Check permissions
@@ -19,10 +21,9 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url)
     const page = parseInt(searchParams.get('page') || '1')
-    const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 100) // Max 100 per page
+    const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 100)
     const status = searchParams.get('status')
-    const source = searchParams.get('source')
-    const tags = searchParams.get('tags')?.split(',')
+    const search = searchParams.get('search')
     const offset = (page - 1) * limit
 
     const supabase = createSupabaseServerClient()
@@ -38,11 +39,9 @@ export async function GET(request: NextRequest) {
     if (status) {
       query = query.eq('status', status)
     }
-    if (source) {
-      query = query.eq('source', source)
-    }
-    if (tags) {
-      query = query.overlaps('tags', tags)
+
+    if (search) {
+      query = query.or(`email.ilike.%${search}%,name.ilike.%${search}%`)
     }
 
     const { data: leads, error, count } = await query
@@ -63,7 +62,7 @@ export async function GET(request: NextRequest) {
         hasNext: page < totalPages,
         hasPrev: page > 1
       }
-    })
+    }, 200, rateLimitInfo.headers)
 
   } catch (error) {
     console.error('Public API error:', error)
@@ -84,9 +83,10 @@ export async function POST(request: NextRequest) {
     // Authenticate API request
     const user = await authenticateAPIRequest(request)
 
-    // Check rate limiting
-    if (!rateLimiter.checkLimit(user.api_key_id)) {
-      return createAPIError('Rate limit exceeded', 429, 'RATE_LIMIT_EXCEEDED')
+    // Check rate limiting for data creation
+    const rateLimitInfo = await RateLimitHelper.checkAPIRateLimit(request)
+    if (!rateLimitInfo.allowed) {
+      return RateLimitHelper.createRateLimitError(rateLimitInfo)
     }
 
     // Check permissions
@@ -95,14 +95,14 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { email, name, phone, company, position, source, tags, custom_fields } = body
+    const { email, name, phone, tags, custom_fields, status = 'active' } = body
 
     // Validate required fields
     if (!email) {
       return createAPIError('Email is required', 400, 'VALIDATION_ERROR')
     }
 
-    // Validate email format
+    // Basic email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!emailRegex.test(email)) {
       return createAPIError('Invalid email format', 400, 'VALIDATION_ERROR')
@@ -110,17 +110,27 @@ export async function POST(request: NextRequest) {
 
     const supabase = createSupabaseServerClient()
 
+    // Check if lead already exists
+    const { data: existingLead } = await supabase
+      .from('leads')
+      .select('id')
+      .eq('email', email)
+      .eq('workspace_id', user.workspace_id)
+      .single()
+
+    if (existingLead) {
+      return createAPIError('Lead with this email already exists', 409, 'DUPLICATE_LEAD')
+    }
+
     const leadData = {
       workspace_id: user.workspace_id,
       email,
       name: name || null,
       phone: phone || null,
-      company: company || null,
-      position: position || null,
-      source: source || 'api',
       tags: tags || [],
       custom_fields: custom_fields || {},
-      status: 'active'
+      status,
+      source: 'api'
     }
 
     const { data: lead, error } = await supabase
@@ -130,146 +140,10 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (error) {
-      if (error.code === '23505') {
-        return createAPIError('Lead with this email already exists', 409, 'DUPLICATE_EMAIL')
-      }
       return createAPIError('Database error', 500, 'DATABASE_ERROR')
     }
 
-    return createAPIResponse(lead, 201)
-
-  } catch (error) {
-    console.error('Public API error:', error)
-
-    if (error instanceof Error) {
-      if (error.message.includes('Token de autorização') || error.message.includes('API key')) {
-        return createAPIError(error.message, 401, 'UNAUTHORIZED')
-      }
-      return createAPIError(error.message, 400, 'BAD_REQUEST')
-    }
-
-    return createAPIError('Internal server error', 500, 'INTERNAL_ERROR')
-  }
-}
-
-export async function PUT(request: NextRequest) {
-  try {
-    // Authenticate API request
-    const user = await authenticateAPIRequest(request)
-
-    // Check rate limiting
-    if (!rateLimiter.checkLimit(user.api_key_id)) {
-      return createAPIError('Rate limit exceeded', 429, 'RATE_LIMIT_EXCEEDED')
-    }
-
-    // Check permissions
-    if (!user.permissions.includes('leads:write' as APIPermission)) {
-      return createAPIError('Insufficient permissions', 403, 'INSUFFICIENT_PERMISSIONS')
-    }
-
-    const { searchParams } = new URL(request.url)
-    const leadId = searchParams.get('id')
-
-    if (!leadId) {
-      return createAPIError('Lead ID is required', 400, 'VALIDATION_ERROR')
-    }
-
-    const body = await request.json()
-    const { email, name, phone, company, position, source, tags, custom_fields, status } = body
-
-    // Validate email if provided
-    if (email) {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-      if (!emailRegex.test(email)) {
-        return createAPIError('Invalid email format', 400, 'VALIDATION_ERROR')
-      }
-    }
-
-    const supabase = createSupabaseServerClient()
-
-    const updateData: any = {
-      updated_at: new Date().toISOString()
-    }
-
-    if (email !== undefined) updateData.email = email
-    if (name !== undefined) updateData.name = name
-    if (phone !== undefined) updateData.phone = phone
-    if (company !== undefined) updateData.company = company
-    if (position !== undefined) updateData.position = position
-    if (source !== undefined) updateData.source = source
-    if (tags !== undefined) updateData.tags = tags
-    if (custom_fields !== undefined) updateData.custom_fields = custom_fields
-    if (status !== undefined) updateData.status = status
-
-    const { data: lead, error } = await supabase
-      .from('leads')
-      .update(updateData)
-      .eq('id', leadId)
-      .eq('workspace_id', user.workspace_id)
-      .select()
-      .single()
-
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return createAPIError('Lead not found', 404, 'NOT_FOUND')
-      }
-      if (error.code === '23505') {
-        return createAPIError('Lead with this email already exists', 409, 'DUPLICATE_EMAIL')
-      }
-      return createAPIError('Database error', 500, 'DATABASE_ERROR')
-    }
-
-    return createAPIResponse(lead)
-
-  } catch (error) {
-    console.error('Public API error:', error)
-
-    if (error instanceof Error) {
-      if (error.message.includes('Token de autorização') || error.message.includes('API key')) {
-        return createAPIError(error.message, 401, 'UNAUTHORIZED')
-      }
-      return createAPIError(error.message, 400, 'BAD_REQUEST')
-    }
-
-    return createAPIError('Internal server error', 500, 'INTERNAL_ERROR')
-  }
-}
-
-export async function DELETE(request: NextRequest) {
-  try {
-    // Authenticate API request
-    const user = await authenticateAPIRequest(request)
-
-    // Check rate limiting
-    if (!rateLimiter.checkLimit(user.api_key_id)) {
-      return createAPIError('Rate limit exceeded', 429, 'RATE_LIMIT_EXCEEDED')
-    }
-
-    // Check permissions
-    if (!user.permissions.includes('leads:delete' as APIPermission)) {
-      return createAPIError('Insufficient permissions', 403, 'INSUFFICIENT_PERMISSIONS')
-    }
-
-    const { searchParams } = new URL(request.url)
-    const leadId = searchParams.get('id')
-
-    if (!leadId) {
-      return createAPIError('Lead ID is required', 400, 'VALIDATION_ERROR')
-    }
-
-    const supabase = createSupabaseServerClient()
-
-    const { error } = await supabase
-      .from('leads')
-      .delete()
-      .eq('id', leadId)
-      .eq('workspace_id', user.workspace_id)
-
-    if (error) {
-      return createAPIError('Database error', 500, 'DATABASE_ERROR')
-    }
-
-    return createAPIResponse({ message: 'Lead deleted successfully' })
+    return createAPIResponse(lead, 201, rateLimitInfo.headers)
 
   } catch (error) {
     console.error('Public API error:', error)

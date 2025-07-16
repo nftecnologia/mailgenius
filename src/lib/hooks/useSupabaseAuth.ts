@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
+import { logger } from '@/lib/logger'
 import type { User, Session } from '@supabase/supabase-js'
 
 interface AuthUser extends User {
@@ -19,7 +20,7 @@ export function useSupabaseAuth() {
   useEffect(() => {
     setIsHydrated(true)
 
-    console.log('🔍 Initializing Supabase auth...')
+    logger.info('Initializing Supabase auth')
 
     // Get initial session only after hydration
     const getInitialSession = async () => {
@@ -27,10 +28,10 @@ export function useSupabaseAuth() {
         const { data: { session }, error } = await supabase.auth.getSession()
 
         if (error) {
-          console.error('❌ Error getting session:', error)
+          logger.error('Error getting initial session', {}, error)
           setError(error.message)
         } else {
-          console.log('📝 Initial session:', session ? '✅ Found' : '❌ None')
+          logger.info(`Initial session: ${session ? 'found' : 'none'}`)
           setSession(session)
 
           if (session?.user) {
@@ -38,7 +39,7 @@ export function useSupabaseAuth() {
           }
         }
       } catch (error) {
-        console.error('❌ Error in getInitialSession:', error)
+        logger.error('Error in getInitialSession', {}, error as Error)
         setError('Erro ao verificar sessão')
       } finally {
         setLoading(false)
@@ -50,7 +51,7 @@ export function useSupabaseAuth() {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('🔄 Auth state changed:', event, session ? '✅ Session' : '❌ No session')
+        logger.info(`Auth state changed: ${event}`, { metadata: { hasSession: !!session } })
 
         setSession(session)
         setError(null)
@@ -73,7 +74,7 @@ export function useSupabaseAuth() {
   // Load user's workspace information
   const loadUserWorkspace = async (authUser: User) => {
     try {
-      console.log('🔄 Loading user workspace for:', authUser.email)
+      logger.info('Loading user workspace', { userId: authUser.id })
 
       // First, check if user exists in our users table
       let { data: userData, error: userError } = await supabase
@@ -84,7 +85,7 @@ export function useSupabaseAuth() {
 
       // If user doesn't exist, create them
       if (userError && userError.code === 'PGRST116') {
-        console.log('👤 Creating new user record...')
+        logger.info('Creating new user record', { userId: authUser.id })
 
         const newUser = {
           id: authUser.id,
@@ -136,10 +137,10 @@ export function useSupabaseAuth() {
       }
 
       setUser(enhancedUser)
-      console.log('✅ User workspace loaded:', enhancedUser.workspaceName)
+      logger.info('User workspace loaded', { userId: authUser.id, workspaceId: enhancedUser.workspaceId })
 
     } catch (error) {
-      console.error('❌ Error loading user workspace:', error)
+      logger.error('Error loading user workspace', { userId: authUser.id }, error as Error)
       setError('Erro ao carregar dados do usuário')
 
       // Set basic user info even if workspace loading fails
@@ -150,7 +151,7 @@ export function useSupabaseAuth() {
   // Create default workspace for new users
   const createDefaultWorkspace = async (userId: string, userName: string) => {
     try {
-      console.log('🏢 Creating default workspace for user...')
+      logger.info('Creating default workspace', { userId })
 
       const workspaceName = `Workspace de ${userName}`
       const workspaceSlug = `workspace-${userId.slice(0, 8)}`
@@ -182,11 +183,11 @@ export function useSupabaseAuth() {
 
       if (membershipError) throw membershipError
 
-      console.log('✅ Default workspace created:', workspace.name)
+      logger.info('Default workspace created', { userId, workspaceId: workspace.id })
       return workspace
 
     } catch (error) {
-      console.error('❌ Error creating default workspace:', error)
+      logger.error('Error creating default workspace', { userId }, error as Error)
       throw error
     }
   }
@@ -197,7 +198,7 @@ export function useSupabaseAuth() {
       setLoading(true)
       setError(null)
 
-      console.log('🔐 Signing in user:', email)
+      logger.auth('Sign in attempt', undefined, { email })
 
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -206,11 +207,11 @@ export function useSupabaseAuth() {
 
       if (error) throw error
 
-      console.log('✅ Sign in successful')
+      logger.auth('Sign in successful', data.user?.id)
       return { user: data.user, session: data.session }
 
     } catch (error: any) {
-      console.error('❌ Sign in error:', error)
+      logger.error('Sign in error', { metadata: { email } }, error)
       setError(error.message || 'Erro no login')
       throw error
     } finally {
@@ -224,7 +225,7 @@ export function useSupabaseAuth() {
       setLoading(true)
       setError(null)
 
-      console.log('📝 Signing up user:', email)
+      logger.auth('Sign up attempt', undefined, { email })
 
       const { data, error } = await supabase.auth.signUp({
         email,
@@ -238,11 +239,11 @@ export function useSupabaseAuth() {
 
       if (error) throw error
 
-      console.log('✅ Sign up successful')
+      logger.auth('Sign up successful', data.user?.id)
       return { user: data.user, session: data.session }
 
     } catch (error: any) {
-      console.error('❌ Sign up error:', error)
+      logger.error('Sign up error', { metadata: { email } }, error)
       setError(error.message || 'Erro no cadastro')
       throw error
     } finally {
@@ -254,17 +255,17 @@ export function useSupabaseAuth() {
   const signOut = async () => {
     try {
       setLoading(true)
-      console.log('🚪 Signing out user...')
+      logger.auth('Sign out attempt', user?.id)
 
       const { error } = await supabase.auth.signOut()
       if (error) throw error
 
       setUser(null)
       setSession(null)
-      console.log('✅ Sign out successful')
+      logger.auth('Sign out successful', user?.id)
 
     } catch (error: any) {
-      console.error('❌ Sign out error:', error)
+      logger.error('Sign out error', { userId: user?.id }, error)
       setError(error.message || 'Erro no logout')
       throw error
     } finally {

@@ -1,15 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase'
-import { authenticateAPIRequest, APIPermission, createAPIResponse, createAPIError, rateLimiter } from '@/lib/api-auth'
+import { authenticateAPIRequest, APIPermission, createAPIResponse, createAPIError } from '@/lib/api-auth'
+import { RateLimitHelper } from '@/lib/rate-limit-helpers'
 
 export async function POST(request: NextRequest) {
   try {
     // Authenticate API request
     const user = await authenticateAPIRequest(request)
 
-    // Check rate limiting
-    if (!rateLimiter.checkLimit(user.api_key_id)) {
-      return createAPIError('Rate limit exceeded', 429, 'RATE_LIMIT_EXCEEDED')
+    // Check rate limiting for campaign sending (strict limit)
+    const rateLimitInfo = await RateLimitHelper.checkCampaignSendingLimit(request)
+    if (!rateLimitInfo.allowed) {
+      return RateLimitHelper.createRateLimitError(rateLimitInfo)
     }
 
     // Check permissions
@@ -171,7 +173,7 @@ export async function POST(request: NextRequest) {
       response.scheduled_for = campaign.send_at
     }
 
-    return createAPIResponse(response, send_immediately ? 200 : 202)
+    return createAPIResponse(response, send_immediately ? 200 : 202, rateLimitInfo.headers)
 
   } catch (error) {
     console.error('Public API error:', error)

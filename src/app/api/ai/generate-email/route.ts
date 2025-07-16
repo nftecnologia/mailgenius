@@ -1,13 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateEmailWithAI, EmailGenerationParams, AIProvider } from '@/lib/ai'
+import { sanitizeFormData, sanitizeHtml } from '@/lib/sanitize'
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
+    
+    // Sanitize input data
+    const sanitizedBody = sanitizeFormData(body)
+    
     const { params, provider = 'openai' }: {
       params: EmailGenerationParams
       provider: AIProvider
-    } = body
+    } = sanitizedBody
 
     // Validate required parameters
     if (!params.audience || !params.purpose) {
@@ -23,13 +28,26 @@ export async function POST(request: NextRequest) {
     if (!isAIAvailable) {
       // Return demo content when AI is not configured
       const mockContent = generateMockEmailContent(params)
-      return NextResponse.json(mockContent)
+      // Sanitize mock content as well
+      const sanitizedMockContent = {
+        ...mockContent,
+        htmlContent: sanitizeHtml(mockContent.htmlContent),
+        subject: typeof mockContent.subject === 'string' ? mockContent.subject.replace(/<[^>]*>/g, '') : mockContent.subject
+      }
+      return NextResponse.json(sanitizedMockContent)
     }
 
     // Generate content with AI
     const result = await generateEmailWithAI(params)
 
-    return NextResponse.json(result)
+    // Sanitize the generated HTML content
+    const sanitizedResult = {
+      ...result,
+      htmlContent: sanitizeHtml(result.htmlContent),
+      subject: typeof result.subject === 'string' ? result.subject.replace(/<[^>]*>/g, '') : result.subject
+    }
+
+    return NextResponse.json(sanitizedResult)
 
   } catch (error) {
     console.error('Error in AI email generation:', error)

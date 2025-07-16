@@ -1,53 +1,79 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import "./globals.css";
-import { ClientBody } from "./ClientBody";
-import Script from "next/script";
+import './globals.css'
+import { Inter } from 'next/font/google'
+import { Analytics } from '@vercel/analytics/react'
+import { SpeedInsights } from '@vercel/speed-insights/next'
+import { Toaster } from '@/components/ui/sonner'
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
+const inter = Inter({ subsets: ['latin'] })
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
-export const metadata: Metadata = {
-  title: 'MailGenius - Email Marketing Inteligente e Automatizado',
-  description: 'A primeira plataforma que combina Editor WYSIWYG, IA Generativa e A/B Testing Inteligente. Aumente suas conversões em até 340% com automação total.',
-  keywords: 'email marketing, automação, IA, inteligência artificial, mailgenius, editor wysiwyg, a/b testing',
+export const metadata = {
+  title: 'MailGenius - Smart Email Marketing Platform',
+  description: 'Transform your email marketing with AI-powered personalization, automation, and analytics.',
+  keywords: 'email marketing, AI, automation, personalization, analytics, campaigns',
+  authors: [{ name: 'MailGenius Team' }],
+  creator: 'MailGenius',
+  publisher: 'MailGenius',
+  formatDetection: {
+    email: false,
+    address: false,
+    telephone: false,
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-video-preview': -1,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+    },
+  },
   openGraph: {
-    title: 'MailGenius - Email Marketing Inteligente',
-    description: 'Plataforma com IA Generativa para email marketing. Editor WYSIWYG único e A/B Testing inteligente.',
-    url: 'https://mailgenius.com',
-    siteName: 'MailGenius',
     type: 'website',
+    siteName: 'MailGenius',
+    title: 'MailGenius - Smart Email Marketing Platform',
+    description: 'Transform your email marketing with AI-powered personalization, automation, and analytics.',
+    url: 'https://mailgenius.com',
+    images: [
+      {
+        url: '/og-image.jpg',
+        width: 1200,
+        height: 630,
+        alt: 'MailGenius - Smart Email Marketing Platform',
+      },
+    ],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'MailGenius - Email Marketing com IA',
-    description: 'A primeira plataforma que combina IA Generativa, Editor WYSIWYG e A/B Testing Inteligente.',
+    site: '@mailgenius',
+    creator: '@mailgenius',
+    title: 'MailGenius - Smart Email Marketing Platform',
+    description: 'Transform your email marketing with AI-powered personalization, automation, and analytics.',
+    images: ['/og-image.jpg'],
   },
-};
+  alternates: {
+    canonical: 'https://mailgenius.com',
+  },
+  other: {
+    'msapplication-TileColor': '#3b82f6',
+    'theme-color': '#3b82f6',
+  },
+}
 
 export default function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+}: {
+  children: React.ReactNode
+}) {
   return (
-    <html lang="pt-BR" className={`${geistSans.variable} ${geistMono.variable}`}>
-      <head>
-        <Script
-          crossOrigin="anonymous"
-          src="//unpkg.com/same-runtime/dist/index.global.js"
-        />
-      </head>
-      <body suppressHydrationWarning>
-        <ClientBody className="antialiased">{children}</ClientBody>
+    <html lang="en" suppressHydrationWarning>
+      <body className={inter.className} suppressHydrationWarning>
+        {children}
+        <Toaster />
+        <Analytics />
+        <SpeedInsights />
       </body>
     </html>
-  );
+  )
 }

@@ -68,6 +68,7 @@ import {
   Sparkles,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { sanitizeHtml, validateHtmlSafety } from '@/lib/sanitize'
 
 interface EmailComponent {
   id: string
@@ -596,13 +597,25 @@ export default function EmailEditorPage() {
   }
 
   const generateHTML = (): string => {
+    const componentHtml = template.components.map(component => generateComponentHTML(component)).join('')
+    
+    // Sanitize the generated HTML
+    const sanitizedComponentHtml = sanitizeHtml(componentHtml)
+    
+    // Validate for security issues
+    const securityIssues = validateHtmlSafety(sanitizedComponentHtml)
+    if (securityIssues.length > 0) {
+      console.warn('Security issues found in generated HTML:', securityIssues)
+      toast.error('Problemas de segurança detectados no HTML gerado')
+    }
+    
     const html = `
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${template.subject}</title>
+  <title>${template.subject.replace(/[<>]/g, '')}</title>
   <style>
     body { margin: 0; padding: 0; font-family: ${template.settings.fontFamily}; background-color: ${template.settings.backgroundColor}; }
     .email-container { max-width: ${template.settings.maxWidth}; margin: 0 auto; background-color: #ffffff; }
@@ -615,7 +628,7 @@ export default function EmailEditorPage() {
 </head>
 <body>
   <div class="email-container">
-    ${template.components.map(component => generateComponentHTML(component)).join('')}
+    ${sanitizedComponentHtml}
   </div>
 </body>
 </html>`
@@ -623,16 +636,36 @@ export default function EmailEditorPage() {
   }
 
   const generateComponentHTML = (component: EmailComponent): string => {
+    // Helper function to sanitize text content
+    const sanitizeTextContent = (text: string | undefined): string => {
+      if (!text) return ''
+      return text.replace(/[<>]/g, '').trim()
+    }
+    
+    // Helper function to sanitize URLs
+    const sanitizeUrl = (url: string | undefined): string => {
+      if (!url) return '#'
+      try {
+        const urlObj = new URL(url)
+        if (['http:', 'https:', 'mailto:', 'tel:'].includes(urlObj.protocol)) {
+          return url
+        }
+      } catch {
+        // If not a valid URL, return safe placeholder
+      }
+      return '#'
+    }
+    
     switch (component.type) {
       case 'heading':
       case 'text':
-        return `<div style="font-size: ${component.content.fontSize}px; font-weight: ${component.content.fontWeight}; color: ${component.content.color}; text-align: ${component.content.textAlign}; padding: ${component.content.padding}; margin: ${component.content.margin}; background-color: ${component.content.backgroundColor || 'transparent'};">${component.content.text}</div>`
+        return `<div style="font-size: ${component.content.fontSize}px; font-weight: ${component.content.fontWeight}; color: ${component.content.color}; text-align: ${component.content.textAlign}; padding: ${component.content.padding}; margin: ${component.content.margin}; background-color: ${component.content.backgroundColor || 'transparent'};">${sanitizeTextContent(component.content.text)}</div>`
 
       case 'image':
-        return `<div style="padding: ${component.content.padding}; margin: ${component.content.margin};"><img src="${component.content.src}" alt="${component.content.alt}" class="responsive-image" style="width: ${component.content.width}; height: ${component.content.height};" /></div>`
+        return `<div style="padding: ${component.content.padding}; margin: ${component.content.margin};"><img src="${sanitizeUrl(component.content.src)}" alt="${sanitizeTextContent(component.content.alt)}" class="responsive-image" style="width: ${component.content.width}; height: ${component.content.height};" /></div>`
 
       case 'button':
-        return `<div style="text-align: ${component.content.textAlign}; margin: ${component.content.margin};"><a href="${component.content.href}" style="display: inline-block; background-color: ${component.content.backgroundColor}; color: ${component.content.color}; font-size: ${component.content.fontSize}px; font-weight: ${component.content.fontWeight}; padding: ${component.content.padding}; border-radius: ${component.content.borderRadius}; text-decoration: none;">${component.content.text}</a></div>`
+        return `<div style="text-align: ${component.content.textAlign}; margin: ${component.content.margin};"><a href="${sanitizeUrl(component.content.href)}" style="display: inline-block; background-color: ${component.content.backgroundColor}; color: ${component.content.color}; font-size: ${component.content.fontSize}px; font-weight: ${component.content.fontWeight}; padding: ${component.content.padding}; border-radius: ${component.content.borderRadius}; text-decoration: none;">${sanitizeTextContent(component.content.text)}</a></div>`
 
       case 'divider':
         return `<div style="height: ${component.content.height}; background-color: ${component.content.backgroundColor}; margin: ${component.content.margin};"></div>`

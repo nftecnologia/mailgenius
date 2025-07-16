@@ -1,0 +1,308 @@
+name: Performance Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Run performance tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+jobs:
+  performance-quick:
+    name: Quick Performance Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mailgenius_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+          
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup environment
+        run: |
+          echo "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/mailgenius_test" >> $GITHUB_ENV
+          echo "REDIS_URL=redis://localhost:6379" >> $GITHUB_ENV
+          echo "NODE_ENV=test" >> $GITHUB_ENV
+
+      - name: Run database migrations
+        run: npm run db:migrate
+
+      - name: Run quick performance tests
+        run: npm run performance:test:quick
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: performance-results-quick
+          path: performance-reports/
+          retention-days: 7
+
+  performance-critical:
+    name: Critical Performance Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event_name == 'push' || github.event_name == 'schedule'
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mailgenius_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+          
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup environment
+        run: |
+          echo "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/mailgenius_test" >> $GITHUB_ENV
+          echo "REDIS_URL=redis://localhost:6379" >> $GITHUB_ENV
+          echo "NODE_ENV=test" >> $GITHUB_ENV
+
+      - name: Run database migrations
+        run: npm run db:migrate
+
+      - name: Run critical performance tests
+        run: npm run performance:test:critical
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: performance-results-critical
+          path: performance-reports/
+          retention-days: 30
+
+  performance-2mm:
+    name: 2MM Contact Load Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    if: github.event_name == 'schedule' || contains(github.event.head_commit.message, '[perf-2mm]')
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mailgenius_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+          
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup environment
+        run: |
+          echo "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/mailgenius_test" >> $GITHUB_ENV
+          echo "REDIS_URL=redis://localhost:6379" >> $GITHUB_ENV
+          echo "NODE_ENV=test" >> $GITHUB_ENV
+          echo "PERFORMANCE_TEST_CONTACTS=2000000" >> $GITHUB_ENV
+          echo "PERFORMANCE_TEST_DURATION=1800000" >> $GITHUB_ENV
+
+      - name: Run database migrations
+        run: npm run db:migrate
+
+      - name: Run 2MM contact load test
+        run: npm run performance:test:2mm
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: performance-results-2mm
+          path: performance-reports/
+          retention-days: 90
+
+      - name: Performance regression check
+        run: |
+          # Check if performance meets minimum requirements
+          if [ -f performance-reports/latest.json ]; then
+            node -e "
+              const report = require('./performance-reports/latest.json');
+              const score = report.summary.overallScore;
+              console.log('Overall Performance Score:', score);
+              if (score < 70) {
+                console.error('Performance regression detected! Score below 70%');
+                process.exit(1);
+              }
+            "
+          fi
+
+  performance-full:
+    name: Full Performance Suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    if: github.event_name == 'schedule' && github.ref == 'refs/heads/main'
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mailgenius_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+          
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup environment
+        run: |
+          echo "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/mailgenius_test" >> $GITHUB_ENV
+          echo "REDIS_URL=redis://localhost:6379" >> $GITHUB_ENV
+          echo "NODE_ENV=test" >> $GITHUB_ENV
+
+      - name: Run database migrations
+        run: npm run db:migrate
+
+      - name: Run full performance test suite
+        run: npm run performance:test:all
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: performance-results-full
+          path: performance-reports/
+          retention-days: 180
+
+      - name: Generate performance trend report
+        run: |
+          # Generate trend analysis if historical data exists
+          if [ -d performance-reports/historical ]; then
+            node -e "
+              const fs = require('fs');
+              const reports = fs.readdirSync('performance-reports/historical');
+              console.log('Historical reports found:', reports.length);
+              // Add trend analysis logic here
+            "
+          fi
+
+  notify-results:
+    name: Notify Results
+    runs-on: ubuntu-latest
+    needs: [performance-quick, performance-critical, performance-2mm, performance-full]
+    if: always() && (github.event_name == 'schedule' || failure())
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Send notification
+        if: failure()
+        run: |
+          echo "Performance tests failed! Please check the results."
+          # Add notification logic here (Slack, email, etc.)
+          # Example: curl -X POST -H 'Content-type: application/json' --data '{"text":"Performance tests failed!"}' $SLACK_WEBHOOK

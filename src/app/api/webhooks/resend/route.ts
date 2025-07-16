@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase'
 import { verifyWebhookSignature } from '@/lib/resend'
+import { webhookSchemas } from '@/lib/validation'
+import { createValidatedHandler } from '@/lib/validation/middleware'
 
 interface WebhookData {
   email_id: string
@@ -12,11 +14,14 @@ interface WebhookData {
 type SupabaseClientType = ReturnType<typeof createSupabaseServerClient>
 
 export async function POST(request: NextRequest) {
+  const context = logger.createRequestContext(request)
+  
   try {
     const body = await request.text()
     const signature = request.headers.get('resend-signature')
 
     if (!signature) {
+      logger.security('Webhook received without signature', context)
       return NextResponse.json(
         { error: 'Missing signature' },
         { status: 401 }
@@ -26,6 +31,7 @@ export async function POST(request: NextRequest) {
     // Verify webhook signature (optional but recommended)
     const webhookSecret = process.env.RESEND_WEBHOOK_SECRET
     if (webhookSecret && !verifyWebhookSignature(body, signature, webhookSecret)) {
+      logger.security('Invalid webhook signature', context)
       return NextResponse.json(
         { error: 'Invalid signature' },
         { status: 401 }
@@ -35,7 +41,7 @@ export async function POST(request: NextRequest) {
     const event = JSON.parse(body)
     const supabase = createSupabaseServerClient()
 
-    console.log('Received Resend webhook:', event.type, event.data)
+    logger.webhook('Received Resend webhook', { type: event.type, email_id: event.data?.email_id }, context)
 
     // Process different event types
     switch (event.type) {
@@ -64,13 +70,13 @@ export async function POST(request: NextRequest) {
         break
 
       default:
-        console.log('Unhandled webhook event type:', event.type)
+        logger.warn('Unhandled webhook event type', { ...context, metadata: { eventType: event.type } })
     }
 
     return NextResponse.json({ success: true })
 
   } catch (error) {
-    console.error('Error processing webhook:', error)
+    logger.error('Error processing webhook', context, error as Error)
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
@@ -88,7 +94,7 @@ async function handleEmailSent(data: WebhookData, supabase: SupabaseClientType) 
       })
       .eq('resend_id', data.email_id)
   } catch (error) {
-    console.error('Error handling email sent:', error)
+    logger.error('Error handling email sent', { metadata: { email_id: data.email_id } }, error as Error)
   }
 }
 
@@ -117,7 +123,7 @@ async function handleEmailDelivered(data: WebhookData, supabase: SupabaseClientT
       })
     }
   } catch (error) {
-    console.error('Error handling email delivered:', error)
+    logger.error('Error handling email delivered', { metadata: { email_id: data.email_id } }, error as Error)
   }
 }
 
@@ -168,7 +174,7 @@ async function handleEmailBounced(data: WebhookData, supabase: SupabaseClientTyp
         })
     }
   } catch (error) {
-    console.error('Error handling email bounced:', error)
+    logger.error('Error handling email bounced', { metadata: { email_id: data.email_id } }, error as Error)
   }
 }
 
@@ -214,7 +220,7 @@ async function handleEmailComplained(data: WebhookData, supabase: SupabaseClient
         })
     }
   } catch (error) {
-    console.error('Error handling email complained:', error)
+    logger.error('Error handling email complained', { metadata: { email_id: data.email_id } }, error as Error)
   }
 }
 
@@ -262,7 +268,7 @@ async function handleEmailOpened(data: WebhookData, supabase: SupabaseClientType
       }
     }
   } catch (error) {
-    console.error('Error handling email opened:', error)
+    logger.error('Error handling email opened', { metadata: { email_id: data.email_id } }, error as Error)
   }
 }
 
@@ -311,6 +317,6 @@ async function handleEmailClicked(data: WebhookData, supabase: SupabaseClientTyp
       }
     }
   } catch (error) {
-    console.error('Error handling email clicked:', error)
+    logger.error('Error handling email clicked', { metadata: { email_id: data.email_id } }, error as Error)
   }
 }

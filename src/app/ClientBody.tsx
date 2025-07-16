@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useHydration } from '@/lib/hooks/useHydration'
+import { QueryProvider } from '@/components/providers/QueryProvider'
 
 export function ClientBody({ className, children }: { className?: string, children: React.ReactNode }) {
   const isHydrated = useHydration()
@@ -84,8 +85,10 @@ export function ClientBody({ className, children }: { className?: string, childr
 
   // Don't render with className until hydrated to avoid mismatch
   return (
-    <div className={isHydrated ? bodyClass : ''}>
-      {children}
-    </div>
+    <QueryProvider>
+      <div className={isHydrated ? bodyClass : ''}>
+        {children}
+      </div>
+    </QueryProvider>
   )
 }

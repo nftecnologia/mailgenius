@@ -45,6 +45,8 @@ import { toast } from 'sonner'
 import { formatDistanceToNow } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import AIEmailGenerator from '@/components/ai/AIEmailGenerator'
+import { SanitizedTemplateHtml } from '@/components/ui/sanitized-html'
+import { validateAndSanitize, emailTemplateSchema } from '@/lib/validation'
 
 interface EmailTemplate {
   id: string
@@ -275,16 +277,25 @@ export default function TemplatesPage() {
     try {
       if (!workspaceId) return
 
-      const variables = extractVariables(formData.html_content + ' ' + formData.subject)
+      // Validate and sanitize form data
+      const validation = validateAndSanitize(emailTemplateSchema, formData)
+      
+      if (!validation.success) {
+        toast.error(`Erro de validação: ${validation.errors.join(', ')}`)
+        return
+      }
+
+      const sanitizedData = validation.data
+      const variables = extractVariables(sanitizedData.html_content + ' ' + sanitizedData.subject)
 
       const templateData = {
         workspace_id: workspaceId,
-        name: formData.name,
-        subject: formData.subject,
-        html_content: formData.html_content,
-        text_content: formData.text_content || null,
+        name: sanitizedData.name,
+        subject: sanitizedData.subject,
+        html_content: sanitizedData.html_content,
+        text_content: sanitizedData.text_content || null,
         variables: variables,
-        template_type: formData.template_type
+        template_type: sanitizedData.template_type
       }
 
       const { error } = await supabase
@@ -604,16 +615,13 @@ export default function TemplatesPage() {
                 <div className="space-y-3">
                   <div className="bg-gray-50 p-3 rounded-lg">
                     <p className="text-xs font-medium text-gray-600 mb-1">Preview:</p>
-                    <div
-                      className="text-sm text-gray-800 line-clamp-3"
-                      dangerouslySetInnerHTML={{
-                        __html: template.html_content
-                          .replace(/<[^>]*>/g, ' ')
-                          .replace(/\s+/g, ' ')
-                          .trim()
-                          .substring(0, 100) + '...'
-                      }}
-                    />
+                    <div className="text-sm text-gray-800 line-clamp-3">
+                      {template.html_content
+                        .replace(/<[^>]*>/g, ' ')
+                        .replace(/\s+/g, ' ')
+                        .trim()
+                        .substring(0, 100) + '...'}
+                    </div>
                   </div>
 
                   <div className="text-xs text-gray-500">
@@ -723,9 +731,9 @@ export default function TemplatesPage() {
 
                 <div>
                   <Label className="text-sm font-medium">Preview HTML:</Label>
-                  <div
+                  <SanitizedTemplateHtml
+                    html={previewTemplate.html_content}
                     className="border rounded-lg p-4 bg-white min-h-[400px] overflow-auto"
-                    dangerouslySetInnerHTML={{ __html: previewTemplate.html_content }}
                   />
                 </div>
               </div>

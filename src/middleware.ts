@@ -1,11 +1,65 @@
 import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs'
 import { NextRequest, NextResponse } from 'next/server'
+import { RateLimitHelper } from '@/lib/rate-limit-helpers'
+import { logger } from '@/lib/logger'
+import { metricsCollector } from '@/lib/monitoring/metrics'
+import { rateLimitMonitoringMiddleware } from '@/lib/monitoring/middleware'
 
 export async function middleware(req: NextRequest) {
+  const startTime = Date.now()
   const res = NextResponse.next()
   const { pathname } = req.nextUrl
+  const method = req.method
+  const context = logger.createRequestContext(req)
 
   console.log(`🔍 Middleware: ${pathname}`)
+
+  // Apply rate limiting to specific route patterns
+  if (pathname.startsWith('/api/public')) {
+    const rateLimitInfo = await RateLimitHelper.checkPublicAPILimit(req)
+    
+    // Record rate limit metrics
+    await rateLimitMonitoringMiddleware(req, rateLimitInfo.allowed, 100, Date.now() + 60000)
+    
+    if (!rateLimitInfo.allowed) {
+      // Record blocked request metrics
+      await metricsCollector.recordApiMetrics(pathname, method, 429, Date.now() - startTime)
+      
+      return new NextResponse(JSON.stringify({
+        error: 'Rate limit exceeded',
+        code: 'RATE_LIMIT_EXCEEDED'
+      }), {
+        status: 429,
+        headers: {
+          'Content-Type': 'application/json',
+          ...rateLimitInfo.headers
+        }
+      })
+    }
+  }
+
+  if (pathname.startsWith('/api/webhooks')) {
+    const rateLimitInfo = await RateLimitHelper.checkWebhookLimit(req)
+    
+    // Record rate limit metrics
+    await rateLimitMonitoringMiddleware(req, rateLimitInfo.allowed, 100, Date.now() + 60000)
+    
+    if (!rateLimitInfo.allowed) {
+      // Record blocked request metrics
+      await metricsCollector.recordApiMetrics(pathname, method, 429, Date.now() - startTime)
+      
+      return new NextResponse(JSON.stringify({
+        error: 'Webhook rate limit exceeded',
+        code: 'WEBHOOK_RATE_LIMIT_EXCEEDED'
+      }), {
+        status: 429,
+        headers: {
+          'Content-Type': 'application/json',
+          ...rateLimitInfo.headers
+        }
+      })
+    }
+  }
 
   // Public routes and auth routes - always allow
   const publicRoutes = ['/', '/pricing', '/features', '/about', '/admin/setup', '/admin/fix-rls']
@@ -25,32 +79,35 @@ export async function middleware(req: NextRequest) {
       const { data: { session }, error } = await supabase.auth.getSession()
 
       if (error) {
-        console.error('❌ Middleware: Error getting session:', error)
+        logger.error('Error getting session in middleware', context, error)
       }
 
-      console.log(`📍 Middleware: ${pathname} | Supabase Session: ${session ? '✅ YES' : '❌ NO'}`)
-
-      if (session) {
-        console.log(`🔐 Session user: ${session.user.email}`)
-      }
+      const hasSession = !!session
+      logger.info(`Session check result: ${hasSession ? 'valid' : 'invalid'}`, {
+        ...context,
+        userId: session?.user?.id
+      })
 
       // If has Supabase session, allow access
       if (session) {
-        console.log(`✅ Middleware: Valid Supabase session, allowing access to ${pathname}`)
+        logger.info(`Valid session, allowing access`, {
+          ...context,
+          userId: session.user.id
+        })
 
         // Important: Return the response with the refreshed session
         return res
       }
 
       // If no Supabase session, redirect to auth
-      console.log(`🚫 Middleware: No valid session, redirecting ${pathname} → /auth`)
+      logger.warn(`No valid session, redirecting to auth`, context)
       const redirectUrl = req.nextUrl.clone()
       redirectUrl.pathname = '/auth'
       redirectUrl.searchParams.set('redirectedFrom', pathname)
       return NextResponse.redirect(redirectUrl)
 
     } catch (error) {
-      console.error('❌ Middleware error:', error)
+      logger.error('Middleware error, redirecting to auth', context, error as Error)
 
       // In case of error, redirect to auth
       const redirectUrl = req.nextUrl.clone()
@@ -61,7 +118,12 @@ export async function middleware(req: NextRequest) {
   }
 
   // For other protected routes, apply same logic
-  console.log(`✅ Middleware: Allowing access to ${pathname}`)
+  logger.info(`Allowing access to route`, context)
+  
+  // Record successful request metrics
+  const duration = Date.now() - startTime
+  await metricsCollector.recordApiMetrics(pathname, method, 200, duration)
+  
   return res
 }
 

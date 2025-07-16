@@ -45,6 +45,9 @@ import {
   AlertTriangle,
   ExternalLink,
   Book,
+  RotateCcw,
+  Calendar,
+  Clock,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { formatDistanceToNow } from 'date-fns'
@@ -59,6 +62,13 @@ interface APIKey {
   last_used_at?: string
   created_at: string
   masked_key?: string
+  expires_at?: string
+  auto_renew?: boolean
+  renewal_period_days?: number
+  status?: 'active' | 'expired' | 'revoked'
+  revoked_at?: string
+  revoked_by?: string
+  revoked_reason?: string
 }
 
 const permissionGroups = {
@@ -80,7 +90,9 @@ export default function APISettingsPage() {
 
   const [formData, setFormData] = useState({
     name: '',
-    permissions: [] as string[]
+    permissions: [] as string[],
+    expiration_days: 90,
+    auto_renew: false
   })
 
   const supabase = createSupabaseClient()
@@ -105,27 +117,40 @@ export default function APISettingsPage() {
 
       setWorkspaceId(member.workspace_id)
 
-      // For demo purposes, we'll create a mock response since we don't have the API keys table
-      // In a real implementation, you would fetch from the database
-      const mockAPIKeys: APIKey[] = [
-        {
-          id: '1',
-          name: 'Production API',
-          permissions: ['leads:read', 'leads:write', 'campaigns:read', 'campaigns:write'],
-          last_used_at: new Date().toISOString(),
-          created_at: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-          masked_key: 'es_live_***************************abc123'
-        },
-        {
-          id: '2',
-          name: 'Analytics Only',
-          permissions: ['analytics:read'],
-          created_at: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(),
-          masked_key: 'es_live_***************************def456'
-        }
-      ]
-
-      setApiKeys(mockAPIKeys)
+      // Fetch API keys from the API
+      const response = await fetch('/api/settings/api-keys')
+      if (response.ok) {
+        const data = await response.json()
+        setApiKeys(data.api_keys || [])
+      } else {
+        // Fallback to mock data for demo
+        const mockAPIKeys: APIKey[] = [
+          {
+            id: '1',
+            name: 'Production API',
+            permissions: ['leads:read', 'leads:write', 'campaigns:read', 'campaigns:write'],
+            last_used_at: new Date().toISOString(),
+            created_at: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+            expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+            auto_renew: true,
+            renewal_period_days: 90,
+            status: 'active',
+            masked_key: 'es_live_***************************abc123'
+          },
+          {
+            id: '2',
+            name: 'Analytics Only',
+            permissions: ['analytics:read'],
+            created_at: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(),
+            expires_at: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(),
+            auto_renew: false,
+            renewal_period_days: 90,
+            status: 'active',
+            masked_key: 'es_live_***************************def456'
+          }
+        ]
+        setApiKeys(mockAPIKeys)
+      }
     } catch (error) {
       console.error('Error loading API keys:', error)
       toast.error('Erro ao carregar chaves de API')
@@ -156,7 +181,9 @@ export default function APISettingsPage() {
         },
         body: JSON.stringify({
           name: formData.name,
-          permissions: formData.permissions
+          permissions: formData.permissions,
+          expiration_days: formData.expiration_days,
+          auto_renew: formData.auto_renew
         })
       })
 
@@ -182,6 +209,10 @@ export default function APISettingsPage() {
           name: formData.name,
           permissions: formData.permissions,
           created_at: new Date().toISOString(),
+          expires_at: new Date(Date.now() + formData.expiration_days * 24 * 60 * 60 * 1000).toISOString(),
+          auto_renew: formData.auto_renew,
+          renewal_period_days: formData.expiration_days,
+          status: 'active',
           masked_key: `es_live_***************************${mockKey.slice(-6)}`
         }
 
@@ -218,7 +249,9 @@ export default function APISettingsPage() {
   const resetForm = () => {
     setFormData({
       name: '',
-      permissions: []
+      permissions: [],
+      expiration_days: 90,
+      auto_renew: false
     })
     setIsCreateDialogOpen(false)
   }
@@ -239,6 +272,53 @@ export default function APISettingsPage() {
 
   const getPermissionLabel = (permission: string) => {
     return API_PERMISSIONS[permission as keyof typeof API_PERMISSIONS] || permission
+  }
+
+  const handleRenewAPIKey = async (keyId: string, keyName: string) => {
+    if (!confirm(`Tem certeza que deseja renovar a API key "${keyName}"?`)) {
+      return
+    }
+
+    try {
+      const response = await fetch('/api/settings/api-keys/renew', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          key_id: keyId,
+          extension_days: 90
+        })
+      })
+
+      if (response.ok) {
+        toast.success('API key renovada com sucesso!')
+        loadAPIKeys()
+      } else {
+        toast.error('Erro ao renovar API key')
+      }
+    } catch (error) {
+      console.error('Error renewing API key:', error)
+      toast.error('Erro ao renovar API key')
+    }
+  }
+
+  const getExpirationStatus = (expiresAt?: string) => {
+    if (!expiresAt) return { status: 'active', label: 'Ativa', color: 'text-green-600' }
+    
+    const expiry = new Date(expiresAt)
+    const now = new Date()
+    const daysUntilExpiry = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+    
+    if (daysUntilExpiry < 0) {
+      return { status: 'expired', label: 'Expirada', color: 'text-red-600' }
+    } else if (daysUntilExpiry <= 7) {
+      return { status: 'expiring_soon', label: `Expira em ${daysUntilExpiry} dia(s)`, color: 'text-orange-600' }
+    } else if (daysUntilExpiry <= 30) {
+      return { status: 'expiring_later', label: `Expira em ${daysUntilExpiry} dias`, color: 'text-yellow-600' }
+    } else {
+      return { status: 'active', label: `Expira em ${daysUntilExpiry} dias`, color: 'text-green-600' }
+    }
   }
 
   if (loading) {
@@ -319,6 +399,48 @@ export default function APISettingsPage() {
                       ))}
                     </div>
                   </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="expiration_days">Expiração (dias) *</Label>
+                      <Select
+                        value={formData.expiration_days.toString()}
+                        onValueChange={(value) => setFormData(prev => ({ ...prev, expiration_days: parseInt(value) }))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="30">30 dias</SelectItem>
+                          <SelectItem value="60">60 dias</SelectItem>
+                          <SelectItem value="90">90 dias</SelectItem>
+                          <SelectItem value="180">180 dias</SelectItem>
+                          <SelectItem value="365">1 ano</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="flex items-center space-x-2 mt-6">
+                      <input
+                        type="checkbox"
+                        id="auto_renew"
+                        checked={formData.auto_renew}
+                        onChange={(e) => setFormData(prev => ({ ...prev, auto_renew: e.target.checked }))}
+                        className="rounded"
+                      />
+                      <Label htmlFor="auto_renew" className="text-sm">
+                        Renovação automática
+                      </Label>
+                    </div>
+                  </div>
+
+                  {formData.auto_renew && (
+                    <div className="p-3 bg-blue-50 rounded-lg">
+                      <p className="text-sm text-blue-800">
+                        Esta API key será renovada automaticamente {formData.expiration_days} dias antes do vencimento.
+                      </p>
+                    </div>
+                  )}
                 </div>
                 <DialogFooter>
                   <Button variant="outline" onClick={resetForm}>
@@ -406,6 +528,99 @@ export default function APISettingsPage() {
           </CardContent>
         </Card>
 
+        {/* Expiring Keys Alert */}
+        {apiKeys.some(k => k.expires_at && getExpirationStatus(k.expires_at).status === 'expiring_soon') && (
+          <Card className="border-orange-200 bg-orange-50">
+            <CardHeader>
+              <CardTitle className="flex items-center text-orange-800">
+                <AlertTriangle className="mr-2 h-5 w-5" />
+                API Keys Expirando
+              </CardTitle>
+              <CardDescription className="text-orange-700">
+                Algumas API keys estão próximas do vencimento
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {apiKeys
+                  .filter(k => k.expires_at && getExpirationStatus(k.expires_at).status === 'expiring_soon')
+                  .map(key => (
+                    <div key={key.id} className="flex items-center justify-between p-2 bg-white rounded border">
+                      <div>
+                        <p className="font-medium">{key.name}</p>
+                        <p className="text-sm text-orange-600">
+                          {getExpirationStatus(key.expires_at).label}
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        onClick={() => handleRenewAPIKey(key.id, key.name)}
+                        className="bg-orange-600 hover:bg-orange-700"
+                      >
+                        <RotateCcw className="mr-1 h-4 w-4" />
+                        Renovar
+                      </Button>
+                    </div>
+                  ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* API Keys Statistics */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Total</p>
+                  <p className="text-2xl font-bold">{apiKeys.length}</p>
+                </div>
+                <Key className="h-8 w-8 text-gray-400" />
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Ativas</p>
+                  <p className="text-2xl font-bold text-green-600">
+                    {apiKeys.filter(k => k.status === 'active').length}
+                  </p>
+                </div>
+                <CheckCircle className="h-8 w-8 text-green-400" />
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Expirando</p>
+                  <p className="text-2xl font-bold text-orange-600">
+                    {apiKeys.filter(k => k.expires_at && getExpirationStatus(k.expires_at).status === 'expiring_soon').length}
+                  </p>
+                </div>
+                <AlertTriangle className="h-8 w-8 text-orange-400" />
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Expiradas</p>
+                  <p className="text-2xl font-bold text-red-600">
+                    {apiKeys.filter(k => k.status === 'expired' || (k.expires_at && getExpirationStatus(k.expires_at).status === 'expired')).length}
+                  </p>
+                </div>
+                <Clock className="h-8 w-8 text-red-400" />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
         {/* API Keys Table */}
         <Card>
           <CardHeader>
@@ -422,9 +637,10 @@ export default function APISettingsPage() {
                     <TableHead>Nome</TableHead>
                     <TableHead>Chave</TableHead>
                     <TableHead>Permissões</TableHead>
+                    <TableHead>Status</TableHead>
                     <TableHead>Último Uso</TableHead>
                     <TableHead>Criada</TableHead>
-                    <TableHead className="w-[100px]">Ações</TableHead>
+                    <TableHead className="w-[120px]">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -447,6 +663,30 @@ export default function APISettingsPage() {
                             <Badge variant="outline" className="text-xs">
                               +{apiKey.permissions.length - 3}
                             </Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            {apiKey.status === 'active' && (
+                              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                            )}
+                            {apiKey.status === 'expired' && (
+                              <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+                            )}
+                            {apiKey.status === 'revoked' && (
+                              <div className="w-2 h-2 bg-gray-500 rounded-full"></div>
+                            )}
+                            <span className={`text-sm ${getExpirationStatus(apiKey.expires_at).color}`}>
+                              {getExpirationStatus(apiKey.expires_at).label}
+                            </span>
+                          </div>
+                          {apiKey.auto_renew && (
+                            <div className="flex items-center gap-1 text-xs text-blue-600">
+                              <RotateCcw className="h-3 w-3" />
+                              Auto-renew
+                            </div>
                           )}
                         </div>
                       </TableCell>
@@ -478,14 +718,30 @@ export default function APISettingsPage() {
                         })}
                       </TableCell>
                       <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleRevokeAPIKey(apiKey.id, apiKey.name)}
-                          className="text-red-600 hover:text-red-700"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center gap-1">
+                          {apiKey.status === 'active' && getExpirationStatus(apiKey.expires_at).status !== 'expired' && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleRenewAPIKey(apiKey.id, apiKey.name)}
+                              className="text-blue-600 hover:text-blue-700"
+                              title="Renovar API Key"
+                            >
+                              <RotateCcw className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {apiKey.status !== 'revoked' && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleRevokeAPIKey(apiKey.id, apiKey.name)}
+                              className="text-red-600 hover:text-red-700"
+                              title="Revogar API Key"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
