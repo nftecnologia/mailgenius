@@ -1,0 +1,16 @@
+[images]
+  remote_images = ["https://source.unsplash.com/.*", "https://images.unsplash.com/.*", "https://ext.same-assets.com/.*", "https://ugc.same-assets.com/.*"]
+
+[build]
+  command = "bun run build"
+  publish = ".next"
+
+[build.environment]
+  NETLIFY_NEXT_PLUGIN_SKIP = "true"
+  NEXT_PUBLIC_SUPABASE_URL = "https://placeholder.supabase.co"
+  NEXT_PUBLIC_SUPABASE_ANON_KEY = "placeholder_key"
+  SUPABASE_SERVICE_ROLE_KEY = "placeholder_service_key"
+  RESEND_API_KEY = "placeholder_resend_key"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"

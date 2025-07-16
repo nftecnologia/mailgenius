@@ -1,0 +1,12 @@
+{
+  "name": "nextjs-shadcn", 
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -H 0.0.0.0 --turbopack",
+    "build": "next build --no-lint",
+    "start": "next start",
+    "lint": "bunx tsc --noEmit && next lint",
+    "format": "bunx biome format --write"
+  }
+}

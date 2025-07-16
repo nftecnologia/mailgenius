@@ -1,0 +1,668 @@
+'use client'
+
+import { useEffect, useState, memo, Suspense } from 'react'
+import dynamic from 'next/dynamic'
+import Link from 'next/link'
+
+// UI Components
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+
+// Icons (tree-shaken)
+import {
+  Users,
+  Mail,
+  TrendingUp,
+  TrendingDown,
+  MousePointer,
+  AlertCircle,
+  Plus,
+  Send,
+  Eye,
+  UserCheck,
+  Sparkles,
+  Zap,
+} from 'lucide-react'
+
+// Date utilities
+import { formatDistanceToNow, subDays, format } from 'date-fns'
+import { ptBR } from 'date-fns/locale'
+
+// Loading components
+import { PageLoading, CardLoading } from '@/components/ui/loading'
+
+// Lazy load heavy components with optimized loading states
+const DashboardLayout = dynamic(() => import('@/components/layout/DashboardLayout'), {
+  loading: () => <PageLoading />
+})
+
+const CampaignChart = dynamic(() => import('@/components/charts/CampaignChart'), {
+  loading: () => <CardLoading className="h-80" />,
+  ssr: false
+})
+
+const LeadsSourceChart = dynamic(() => import('@/components/charts/LeadsSourceChart'), {
+  loading: () => <CardLoading className="h-80" />,
+  ssr: false
+})
+
+const ConversionChart = dynamic(() => import('@/components/charts/ConversionChart'), {
+  loading: () => <CardLoading className="h-80" />,
+  ssr: false
+})
+
+const AIEmailGenerator = dynamic(() => import('@/components/ai/AIEmailGenerator'), {
+  loading: () => <CardLoading className="h-40" />,
+  ssr: false
+})
+
+interface DashboardStats {
+  totalLeads: number
+  activeLeads: number
+  totalCampaigns: number
+  activeCampaigns: number
+  totalEmailsSent: number
+  deliveryRate: number
+  openRate: number
+  clickRate: number
+}
+
+interface RecentActivity {
+  id: string
+  type: string
+  description: string
+  created_at: string
+}
+
+interface ChartData {
+  campaign: Array<{
+    date: string
+    sent: number
+    delivered: number
+    opened: number
+    clicked: number
+  }>
+  leadsSource: Array<{
+    source: string
+    count: number
+    percentage: number
+  }>
+  conversion: Array<{
+    campaign: string
+    deliveryRate: number
+    openRate: number
+    clickRate: number
+    totalSent: number
+  }>
+}
+
+interface AIInsight {
+  type: 'success' | 'warning' | 'info' | 'suggestion'
+  title: string
+  description: string
+  action?: {
+    label: string
+    href: string
+  }
+  icon: any
+}
+
+export default function DashboardPage() {
+  const [stats, setStats] = useState<DashboardStats>({
+    totalLeads: 0,
+    activeLeads: 0,
+    totalCampaigns: 0,
+    activeCampaigns: 0,
+    totalEmailsSent: 0,
+    deliveryRate: 0,
+    openRate: 0,
+    clickRate: 0,
+  })
+  const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([])
+  const [chartData, setChartData] = useState<ChartData>({
+    campaign: [],
+    leadsSource: [],
+    conversion: []
+  })
+  const [loading, setLoading] = useState(true)
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null)
+  const [aiInsights, setAiInsights] = useState<AIInsight[]>([])
+  const [loadingInsights, setLoadingInsights] = useState(false)
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+
+  useEffect(() => {
+    const checkAuth = () => {
+      try {
+        console.log('🔍 Verificando autenticação no dashboard...')
+        const authState = localStorage.getItem('mailgenius_auth')
+        const userState = localStorage.getItem('mailgenius_user')
+
+        console.log('📝 Auth state:', authState)
+        console.log('👤 User state:', userState)
+
+        if (authState === 'true') {
+          console.log('✅ Usuário autenticado - carregando dashboard')
+          setIsAuthenticated(true)
+        } else {
+          console.log('❌ Usuário não autenticado - redirecionando para auth')
+          // Multiple redirect methods
+          try {
+            window.location.href = "/auth"
+          } catch (e) {
+            window.location.href = '/auth'
+          }
+        }
+      } catch (error) {
+        console.error('❌ Erro na verificação de auth:', error)
+        try {
+          window.location.href = "/auth"
+        } catch (e) {
+          window.location.href = '/auth'
+        }
+      }
+    }
+
+    // Check immediately and also with small delay
+    checkAuth()
+  }, [])
+
+  // Mocked chart data
+  const loadCampaignChartData = async () => {
+    const days = []
+    for (let i = 29; i >= 0; i--) {
+      const date = subDays(new Date(), i)
+      days.push({
+        date: format(date, 'yyyy-MM-dd'),
+        sent: Math.floor(Math.random() * 1000) + 100,
+        delivered: Math.floor(Math.random() * 900) + 90,
+        opened: Math.floor(Math.random() * 500) + 50,
+        clicked: Math.floor(Math.random() * 100) + 10,
+      })
+    }
+    return days
+  }
+
+  const loadLeadsSourceData = async () => {
+    // Mocked data
+    return [
+      { source: 'Website', count: 45, percentage: 45 },
+      { source: 'CSV Import', count: 30, percentage: 30 },
+      { source: 'Manual', count: 15, percentage: 15 },
+      { source: 'API', count: 10, percentage: 10 },
+    ]
+  }
+
+  const loadConversionData = async () => {
+    // Mocked data
+    return [
+      { campaign: 'Newsletter Jan', deliveryRate: 98.5, openRate: 24.3, clickRate: 5.2, totalSent: 1250 },
+      { campaign: 'Promo Black Friday', deliveryRate: 97.8, openRate: 31.5, clickRate: 8.7, totalSent: 2850 },
+      { campaign: 'Welcome Series', deliveryRate: 99.2, openRate: 42.1, clickRate: 12.3, totalSent: 450 },
+      { campaign: 'Product Launch', deliveryRate: 96.5, openRate: 28.9, clickRate: 6.8, totalSent: 1890 },
+    ]
+  }
+
+  const loadRecentActivity = async () => {
+    // Mocked recent activity
+    const now = new Date()
+    const activities: RecentActivity[] = [
+      {
+        id: '1',
+        type: 'campaign',
+        description: 'Campanha "Newsletter Jan" foi enviada',
+        created_at: subDays(now, 1).toISOString(),
+      },
+      {
+        id: '2',
+        type: 'lead',
+        description: 'Novo lead adicionado: joao@email.com',
+        created_at: subDays(now, 2).toISOString(),
+      },
+      {
+        id: '3',
+        type: 'campaign',
+        description: 'Campanha "Promo Black Friday" foi criada',
+        created_at: subDays(now, 3).toISOString(),
+      },
+      {
+        id: '4',
+        type: 'lead',
+        description: 'Novo lead adicionado: maria@email.com',
+        created_at: subDays(now, 4).toISOString(),
+      },
+      {
+        id: '5',
+        type: 'campaign',
+        description: 'Campanha "Welcome Series" foi enviada',
+        created_at: subDays(now, 5).toISOString(),
+      },
+    ]
+    setRecentActivity(activities)
+  }
+
+  const loadChartData = async () => {
+    try {
+      const campaignData = await loadCampaignChartData()
+      const leadsSourceData = await loadLeadsSourceData()
+      const conversionData = await loadConversionData()
+
+      setChartData({
+        campaign: campaignData,
+        leadsSource: leadsSourceData,
+        conversion: conversionData
+      })
+    } catch (error) {
+      console.error('Error loading chart data:', error)
+    }
+  }
+
+  const loadAIInsights = async () => {
+    if (!workspaceId) return
+
+    setLoadingInsights(true)
+
+    try {
+      const insights: AIInsight[] = []
+
+      if (stats.openRate < 20) {
+        insights.push({
+          type: 'warning',
+          title: 'Taxa de Abertura Baixa',
+          description: `Sua taxa de abertura (${stats.openRate.toFixed(1)}%) está abaixo da média do setor (22%). Considere melhorar seus assuntos.`,
+          action: {
+            label: 'Gerar Assuntos com IA',
+            href: '/dashboard/templates'
+          },
+          icon: TrendingDown
+        })
+      }
+
+      if (stats.totalLeads > 50 && stats.activeCampaigns < 2) {
+        insights.push({
+          type: 'suggestion',
+          title: 'Automatize seu Marketing',
+          description: `Com ${stats.totalLeads} leads, você pode criar automações para nutrir melhor seus contatos.`,
+          action: {
+            label: 'Criar Automação',
+            href: '/dashboard/automations/builder'
+          },
+          icon: Zap
+        })
+      }
+
+      if (stats.totalLeads > 100) {
+        insights.push({
+          type: 'info',
+          title: 'Oportunidade de Segmentação',
+          description: 'Com sua base de leads, você pode criar segmentos mais específicos para melhorar as conversões.',
+          action: {
+            label: 'Ver Leads',
+            href: '/dashboard/leads'
+          },
+          icon: Users
+        })
+      }
+
+      if (stats.openRate > 25) {
+        insights.push({
+          type: 'success',
+          title: 'Excelente Performance!',
+          description: `Sua taxa de abertura de ${stats.openRate.toFixed(1)}% está acima da média do mercado. Continue assim!`,
+          icon: TrendingUp
+        })
+      }
+
+      insights.push({
+        type: 'suggestion',
+        title: 'Conteúdo Inteligente',
+        description: 'Use IA para gerar emails mais envolventes e aumentar suas conversões.',
+        action: {
+          label: 'Gerar Email com IA',
+          href: '/dashboard/templates'
+        },
+        icon: Sparkles
+      })
+
+      setAiInsights(insights)
+    } catch (error) {
+      console.error('Error loading AI insights:', error)
+    } finally {
+      setLoadingInsights(false)
+    }
+  }
+
+  useEffect(() => {
+    const loadDashboardData = async () => {
+      // Only load data if user is authenticated
+      if (!isAuthenticated) {
+        return
+      }
+
+      console.log('Loading dashboard data...')
+      setLoading(true)
+
+      try {
+        // Simulate loading with mock data
+        await new Promise(resolve => setTimeout(resolve, 1000))
+
+        // Set mock workspace
+        const mockWorkspaceId = 'demo-workspace-123'
+        setWorkspaceId(mockWorkspaceId)
+
+        // Set mock stats
+        setStats({
+          totalLeads: 1250,
+          activeLeads: 1100,
+          totalCampaigns: 45,
+          activeCampaigns: 8,
+          totalEmailsSent: 125000,
+          deliveryRate: 98.5,
+          openRate: 24.3,
+          clickRate: 5.2,
+        })
+
+        // Load mocked recent activity and chart data
+        loadRecentActivity()
+        loadChartData()
+
+        console.log('Dashboard data loaded successfully')
+      } catch (error) {
+        console.error('Error loading dashboard data:', error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    if (isAuthenticated) {
+      loadDashboardData()
+    }
+  }, [isAuthenticated])
+
+  useEffect(() => {
+    if (workspaceId && !loading) {
+      loadAIInsights()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId, loading, stats])
+
+  const getInsightColor = (type: string) => {
+    switch (type) {
+      case 'success': return 'border-green-200 bg-green-50'
+      case 'warning': return 'border-yellow-200 bg-yellow-50'
+      case 'info': return 'border-blue-200 bg-blue-50'
+      case 'suggestion': return 'border-purple-200 bg-purple-50'
+      default: return 'border-gray-200 bg-gray-50'
+    }
+  }
+
+  const getInsightTextColor = (type: string) => {
+    switch (type) {
+      case 'success': return 'text-green-800'
+      case 'warning': return 'text-yellow-800'
+      case 'info': return 'text-blue-800'
+      case 'suggestion': return 'text-purple-800'
+      default: return 'text-gray-800'
+    }
+  }
+
+  // Show loading while checking auth or loading data
+  if (!isAuthenticated || loading) {
+    return (
+      <DashboardLayout>
+        <div className="p-6">
+          <div className="animate-pulse space-y-6">
+            <div className="h-8 bg-gray-200 rounded w-1/4"></div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="h-32 bg-gray-200 rounded-lg"></div>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="h-64 bg-gray-200 rounded-lg"></div>
+              <div className="h-64 bg-gray-200 rounded-lg"></div>
+            </div>
+          </div>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  return (
+    <DashboardLayout>
+      <div className="p-6 space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+            <p className="text-gray-600">Visão geral das suas métricas de email marketing</p>
+          </div>
+          <div className="flex gap-3">
+            <AIEmailGenerator
+              onGenerated={(content) => {
+                window.open('/dashboard/templates', '_blank')
+              }}
+            />
+            <Button asChild>
+              <Link href="/dashboard/campaigns/new">
+                <Plus className="mr-2 h-4 w-4" />
+                Nova Campanha
+              </Link>
+            </Button>
+          </div>
+        </div>
+
+        {/* AI Insights */}
+        {aiInsights.length > 0 && (
+          <Card className="border-purple-200 bg-gradient-to-r from-purple-50 to-blue-50">
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Sparkles className="mr-2 h-5 w-5 text-purple-600" />
+                Insights Inteligentes
+                <Badge variant="secondary" className="ml-2">Powered by AI</Badge>
+              </CardTitle>
+              <CardDescription>
+                Recomendações personalizadas baseadas no desempenho do seu workspace
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {aiInsights.map((insight, index) => {
+                  const Icon = insight.icon
+                  return (
+                    <div
+                      key={index}
+                      className={`p-4 rounded-lg border ${getInsightColor(insight.type)}`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className={`p-2 rounded-lg ${getInsightTextColor(insight.type)} bg-white`}>
+                          <Icon className="h-4 w-4" />
+                        </div>
+                        <div className="flex-1">
+                          <h4 className={`font-medium ${getInsightTextColor(insight.type)}`}>
+                            {insight.title}
+                          </h4>
+                          <p className={`text-sm mt-1 ${getInsightTextColor(insight.type)} opacity-80`}>
+                            {insight.description}
+                          </p>
+                          {insight.action && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="mt-2"
+                              asChild
+                            >
+                              <Link href={insight.action.href}>
+                                {insight.action.label}
+                              </Link>
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total de Leads</CardTitle>
+              <Users className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.totalLeads.toLocaleString()}</div>
+              <p className="text-xs text-muted-foreground">
+                <span className="text-green-600">{stats.activeLeads}</span> ativos
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Campanhas</CardTitle>
+              <Mail className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.totalCampaigns}</div>
+              <p className="text-xs text-muted-foreground">
+                <span className="text-blue-600">{stats.activeCampaigns}</span> ativas
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Taxa de Entrega</CardTitle>
+              <Send className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.deliveryRate.toFixed(1)}%</div>
+              <p className="text-xs text-muted-foreground">
+                {stats.totalEmailsSent.toLocaleString()} emails enviados
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Taxa de Abertura</CardTitle>
+              <Eye className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.openRate.toFixed(1)}%</div>
+              <p className="text-xs text-muted-foreground">
+                Taxa de cliques: {stats.clickRate.toFixed(1)}%
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Advanced Charts */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {/* Campaign Performance Chart */}
+          <CampaignChart data={chartData.campaign} />
+
+          {/* Recent Activity */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Atividade Recente</CardTitle>
+              <CardDescription>
+                Últimas ações realizadas no workspace
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {recentActivity.length > 0 ? (
+                  recentActivity.map((activity) => (
+                    <div key={activity.id} className="flex items-start space-x-3">
+                      <div className="flex-shrink-0">
+                        {activity.type === 'campaign' ? (
+                          <Mail className="h-4 w-4 text-blue-500 mt-1" />
+                        ) : (
+                          <UserCheck className="h-4 w-4 text-green-500 mt-1" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-gray-900">{activity.description}</p>
+                        <p className="text-xs text-gray-500">
+                          {formatDistanceToNow(new Date(activity.created_at), {
+                            addSuffix: true,
+                            locale: ptBR,
+                          })}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-center py-8">
+                    <AlertCircle className="h-8 w-8 mx-auto text-gray-400 mb-2" />
+                    <p className="text-gray-500">Nenhuma atividade recente</p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Additional Charts */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {/* Leads Source Distribution */}
+          <LeadsSourceChart data={chartData.leadsSource} />
+
+          {/* Campaign Conversion Rates */}
+          <ConversionChart data={chartData.conversion} />
+        </div>
+
+        {/* Quick Actions */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Ações Rápidas</CardTitle>
+            <CardDescription>
+              Comece rapidamente com as ações mais comuns
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <Button variant="outline" asChild className="h-auto p-4">
+                <Link href="/dashboard/leads/import" className="flex flex-col items-center space-y-2">
+                  <Users className="h-6 w-6" />
+                  <span>Importar Leads</span>
+                  <span className="text-xs text-gray-500">Adicionar contatos via CSV</span>
+                </Link>
+              </Button>
+
+              <Button variant="outline" asChild className="h-auto p-4">
+                <Link href="/dashboard/campaigns/new" className="flex flex-col items-center space-y-2">
+                  <Mail className="h-6 w-6" />
+                  <span>Nova Campanha</span>
+                  <span className="text-xs text-gray-500">Criar campanha de email</span>
+                </Link>
+              </Button>
+
+              <Button variant="outline" asChild className="h-auto p-4">
+                <Link href="/dashboard/automations/builder" className="flex flex-col items-center space-y-2">
+                  <MousePointer className="h-6 w-6" />
+                  <span>Criar Automação</span>
+                  <span className="text-xs text-gray-500">Builder visual de fluxos</span>
+                </Link>
+              </Button>
+
+              <Button variant="outline" asChild className="h-auto p-4">
+                <Link href="/dashboard/templates" className="flex flex-col items-center space-y-2">
+                  <Sparkles className="h-6 w-6" />
+                  <span>Gerar com IA</span>
+                  <span className="text-xs text-gray-500">Conteúdo inteligente</span>
+                </Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </DashboardLayout>
+  )
+}

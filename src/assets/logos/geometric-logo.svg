@@ -1,0 +1,14 @@
+<svg width="80" height="80" viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="geometric-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stopColor="#6366f1" />
+      <stop offset="50%" stopColor="#8b5cf6" />
+      <stop offset="100%" stopColor="#06b6d4" />
+    </linearGradient>
+  </defs>
+
+  <!-- Abstract S + E shape representing EmailSend -->
+  <path d="M20 25 L35 15 L50 25 L50 35 L35 45 L20 35 Z" fill="url(#geometric-gradient)" opacity="0.9"/>
+  <path d="M30 35 L45 25 L60 35 L60 45 L45 55 L30 45 Z" fill="url(#geometric-gradient)" opacity="0.7"/>
+  <path d="M40 45 L55 35 L70 45 L70 55 L55 65 L40 55 Z" fill="url(#geometric-gradient)" opacity="0.5"/>
+</svg>
