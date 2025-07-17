@@ -1,0 +1,67 @@
+name: mailgenius-platform
+services:
+  - name: web
+    dockerfile_path: Dockerfile
+    instance_count: 1
+    instance_size_slug: apps-s-1vcpu-1gb
+    http_port: 3000
+    routes:
+      - path: /
+        preserve_path_prefix: true
+    health_check:
+      http_path: /api/health
+      initial_delay_seconds: 30
+      period_seconds: 10
+      timeout_seconds: 5
+      failure_threshold: 3
+      success_threshold: 1
+    envs:
+      - key: NODE_ENV
+        value: production
+        type: GENERAL
+        scope: RUN_TIME
+      - key: PORT
+        value: "3000"
+        type: GENERAL
+        scope: RUN_TIME
+      - key: NEXT_PUBLIC_APP_URL
+        value: https://mailgenius-platform-vd6k5.ondigitalocean.app
+        type: GENERAL
+        scope: RUN_AND_BUILD_TIME
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        value: ""
+        type: SECRET
+        scope: RUN_AND_BUILD_TIME
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        value: ""
+        type: SECRET
+        scope: RUN_AND_BUILD_TIME
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        value: ""
+        type: SECRET
+        scope: RUN_TIME
+      - key: RESEND_API_KEY
+        value: ""
+        type: SECRET
+        scope: RUN_TIME
+      - key: OPENAI_API_KEY
+        value: ""
+        type: SECRET
+        scope: RUN_TIME
+      - key: ANTHROPIC_API_KEY
+        value: ""
+        type: SECRET
+        scope: RUN_TIME
+      - key: JWT_SECRET
+        value: ""
+        type: SECRET
+        scope: RUN_TIME
+      - key: REDIS_ENABLED
+        value: "false"
+        type: GENERAL
+        scope: RUN_TIME
+      - key: RATE_LIMIT_FALLBACK_MEMORY
+        value: "true"
+        type: GENERAL
+        scope: RUN_TIME
+region: nyc

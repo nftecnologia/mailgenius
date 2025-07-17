@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase'
 import { authenticateAPIRequest, APIPermission, createAPIResponse, createAPIError } from '@/lib/api-auth'
 import { RateLimitHelper } from '@/lib/rate-limit-helpers'
+import { automationEngine } from '@/lib/automation/automation-engine'
 
 export async function GET(request: NextRequest) {
   try {
@@ -141,6 +142,14 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       return createAPIError('Database error', 500, 'DATABASE_ERROR')
+    }
+
+    // Trigger new lead automations
+    try {
+      await automationEngine.triggerForNewLead(lead.id, user.workspace_id)
+    } catch (automationError) {
+      console.error('Error triggering automations for new lead:', automationError)
+      // Don't fail the request if automation fails
     }
 
     return createAPIResponse(lead, 201, rateLimitInfo.headers)

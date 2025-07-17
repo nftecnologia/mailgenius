@@ -65,6 +65,7 @@ import {
   Webhook,
   ArrowLeft,
   Sparkles,
+  GitBranch,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import AIFlowGenerator from '@/components/ai/AIFlowGenerator'
@@ -101,12 +102,16 @@ interface StepConfig {
 
 interface AutomationStep {
   id: string
-  type: 'trigger' | 'condition' | 'action' | 'delay'
+  type: 'trigger' | 'condition' | 'action' | 'delay' | 'branching'
   name: string
   description: string
   config: StepConfig
   icon: any
   color: string
+  // Para condições avançadas
+  advanced_conditions?: any[]
+  // Para branching
+  next_steps?: string[]
 }
 
 interface FlowData {
@@ -164,6 +169,31 @@ const availableSteps: AutomationStep[] = [
     config: { source: '', operator: 'equals' },
     icon: Filter,
     color: 'bg-orange-500'
+  },
+  {
+    id: 'branching-advanced',
+    type: 'branching',
+    name: 'Ramificação Avançada',
+    description: 'Criar caminhos diferentes baseados em condições complexas',
+    config: { 
+      conditions: [],
+      branches: [
+        {
+          id: 'branch-true',
+          name: 'Condição Verdadeira',
+          condition_result: true,
+          next_steps: []
+        },
+        {
+          id: 'branch-false',
+          name: 'Condição Falsa',
+          condition_result: false,
+          next_steps: []
+        }
+      ]
+    },
+    icon: GitBranch,
+    color: 'bg-purple-600'
   },
 
   // Actions
