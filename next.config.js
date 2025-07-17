@@ -18,8 +18,19 @@ const nextConfig = {
 
   // Bundle optimization
   webpack: (config, { isServer }) => {
-    // Optimize client-side bundle
+    // Fix for Node.js modules in client-side bundle
     if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        net: false,
+        tls: false,
+        crypto: false,
+        stream: false,
+        dns: false,
+        child_process: false,
+      }
+      
       config.optimization.splitChunks = {
         chunks: 'all',
         cacheGroups: {
